@@ -22,7 +22,6 @@ import {
   Mail,
   LockKeyhole,
   LogOut,
-  Clock3,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -31,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useAuthSession } from "@/lib/firebaseAuth";
 
 const topics = [
   {
@@ -1318,184 +1318,6 @@ function LabelBadge({ label }) {
   return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${labelStyles[label] || "bg-slate-100 text-slate-700"}`}>{label}</span>;
 }
 const STORAGE_KEY = "python-practice-progress-v1";
-const AUTH_SESSION_KEY = "python-practice-auth-v1";
-const AUTH_TTL_MS = 24 * 60 * 60 * 1000;
-const DEMO_USER_EMAIL = "student@pythonpractice.dev";
-const DEMO_USER_PASSWORD = "python@123";
-
-function base64UrlEncode(value) {
-  const encoded = btoa(value);
-  return encoded.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-
-function base64UrlDecode(value) {
-  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
-  return atob(padded);
-}
-
-function parseJwtPayload(token) {
-  try {
-    const [, payload] = token.split(".");
-    if (!payload) return null;
-    return JSON.parse(base64UrlDecode(payload));
-  } catch {
-    return null;
-  }
-}
-
-function buildMockJwt(email) {
-  const now = Math.floor(Date.now() / 1000);
-  const header = { alg: "HS256", typ: "JWT" };
-  const payload = {
-    sub: email,
-    email,
-    iat: now,
-    exp: now + Math.floor(AUTH_TTL_MS / 1000),
-  };
-  return `${base64UrlEncode(JSON.stringify(header))}.${base64UrlEncode(JSON.stringify(payload))}.demo-signature`;
-}
-
-function normalizeAuthSession(rawSession) {
-  if (!rawSession?.token) return null;
-  const now = Date.now();
-  const payload = parseJwtPayload(rawSession.token);
-  const tokenExpiry = typeof payload?.exp === "number" ? payload.exp * 1000 : null;
-  const fallbackExpiry = now + AUTH_TTL_MS;
-  const expiresAt = Math.min(tokenExpiry ?? fallbackExpiry, fallbackExpiry);
-  return {
-    token: rawSession.token,
-    user: rawSession.user || {},
-    expiresAt,
-    createdAt: now,
-  };
-}
-
-function saveAuthSession(rawSession) {
-  const session = normalizeAuthSession(rawSession);
-  if (!session) return null;
-  window.localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
-  return session;
-}
-
-function readAuthSession() {
-  try {
-    const raw = window.localStorage.getItem(AUTH_SESSION_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed?.token || typeof parsed?.expiresAt !== "number") return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function clearAuthSession() {
-  window.localStorage.removeItem(AUTH_SESSION_KEY);
-}
-
-function isAuthSessionValid(session) {
-  if (!session?.token || typeof session?.expiresAt !== "number") return false;
-  if (session.expiresAt <= Date.now()) return false;
-  return true;
-}
-
-async function requestJwtSession({ email, password }) {
-  const normalizedEmail = email.trim().toLowerCase();
-  const loginUrl = import.meta.env.VITE_AUTH_LOGIN_URL;
-
-  if (loginUrl) {
-    const response = await fetch(loginUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ email: normalizedEmail, password }),
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data?.token) {
-      throw new Error(data?.message || "Invalid email or password.");
-    }
-    return {
-      token: data.token,
-      user: data.user || { email: normalizedEmail },
-    };
-  }
-
-  if (normalizedEmail !== DEMO_USER_EMAIL || password !== DEMO_USER_PASSWORD) {
-    throw new Error(`Invalid credentials. Use ${DEMO_USER_EMAIL} / ${DEMO_USER_PASSWORD}`);
-  }
-
-  return {
-    token: buildMockJwt(normalizedEmail),
-    user: {
-      email: normalizedEmail,
-      name: "Practice Learner",
-    },
-  };
-}
-
-function useAuthSession() {
-  const [status, setStatus] = useState("loading");
-  const [session, setSession] = useState(null);
-
-  useEffect(() => {
-    const stored = readAuthSession();
-    if (isAuthSessionValid(stored)) {
-      setSession(stored);
-      setStatus("authenticated");
-      return;
-    }
-    clearAuthSession();
-    setSession(null);
-    setStatus("anonymous");
-  }, []);
-
-  useEffect(() => {
-    if (!session?.expiresAt) return;
-    const msLeft = session.expiresAt - Date.now();
-    if (msLeft <= 0) {
-      clearAuthSession();
-      setSession(null);
-      setStatus("anonymous");
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      clearAuthSession();
-      setSession(null);
-      setStatus("anonymous");
-    }, msLeft);
-    return () => window.clearTimeout(timer);
-  }, [session?.expiresAt]);
-
-  const login = async (credentials) => {
-    const rawSession = await requestJwtSession(credentials);
-    const persisted = saveAuthSession(rawSession);
-    if (!isAuthSessionValid(persisted)) {
-      clearAuthSession();
-      throw new Error("Received an invalid session token.");
-    }
-    setSession(persisted);
-    setStatus("authenticated");
-    return persisted;
-  };
-
-  const logout = () => {
-    clearAuthSession();
-    setSession(null);
-    setStatus("anonymous");
-  };
-
-  return {
-    status,
-    isAuthenticated: status === "authenticated",
-    token: session?.token || null,
-    user: session?.user || null,
-    expiresAt: session?.expiresAt || null,
-    login,
-    logout,
-  };
-}
 
 const slugify = (value) => value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 
@@ -1606,13 +1428,14 @@ function SessionHeader({ user, expiresAt, onLogout }) {
   );
 }
 
-function LoginPage({ onLogin, isSubmitting, errorMessage }) {
-  const [email, setEmail] = useState(DEMO_USER_EMAIL);
-  const [password, setPassword] = useState(DEMO_USER_PASSWORD);
+function LoginPage({ onLogin, isSubmitting, errorMessage, configError }) {
+  const [authMode, setAuthMode] = useState("signin");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    await onLogin({ email, password });
+    await onLogin({ email, password, mode: authMode });
   };
 
   return (
@@ -1620,14 +1443,33 @@ function LoginPage({ onLogin, isSubmitting, errorMessage }) {
       <Card className="w-full max-w-md rounded-3xl border-0 shadow-xl">
         <CardHeader className="space-y-3 pb-2">
           <div className="inline-flex w-fit items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-            <ShieldCheck className="h-4 w-4" /> JWT Authentication
+            <ShieldCheck className="h-4 w-4" /> Firebase Authentication
           </div>
-          <CardTitle className="text-3xl">Welcome back</CardTitle>
+          <CardTitle className="text-3xl">{authMode === "signin" ? "Welcome back" : "Create account"}</CardTitle>
           <p className="text-sm text-slate-600">
-            Login to access all coding questions. Session is remembered for up to 24 hours.
+            {authMode === "signin"
+              ? "Sign in with your Firebase account to access all coding questions."
+              : "Create a new Firebase account to start practicing immediately."}
           </p>
         </CardHeader>
         <CardContent className="space-y-5">
+          <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1">
+            <button
+              type="button"
+              onClick={() => setAuthMode("signin")}
+              className={`rounded-xl px-3 py-2 text-sm font-medium transition ${authMode === "signin" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600"}`}
+            >
+              Sign in
+            </button>
+            <button
+              type="button"
+              onClick={() => setAuthMode("signup")}
+              className={`rounded-xl px-3 py-2 text-sm font-medium transition ${authMode === "signup" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600"}`}
+            >
+              Create account
+            </button>
+          </div>
+
           <form onSubmit={handleSubmit} className="space-y-4">
             <label className="block space-y-2">
               <span className="text-sm font-medium text-slate-700">Email</span>
@@ -1640,6 +1482,7 @@ function LoginPage({ onLogin, isSubmitting, errorMessage }) {
                   onChange={(event) => setEmail(event.target.value)}
                   className="h-11 rounded-2xl pl-10"
                   placeholder="you@example.com"
+                  disabled={Boolean(configError)}
                 />
               </div>
             </label>
@@ -1655,27 +1498,29 @@ function LoginPage({ onLogin, isSubmitting, errorMessage }) {
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   className="h-11 rounded-2xl pl-10"
-                  placeholder="Enter your password"
+                  placeholder="At least 6 characters"
+                  disabled={Boolean(configError)}
                 />
               </div>
             </label>
 
-            {errorMessage ? (
+            {configError ? (
+              <p className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{configError}</p>
+            ) : null}
+
+            {!configError && errorMessage ? (
               <p className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorMessage}</p>
             ) : null}
 
-            <Button type="submit" className="h-11 w-full rounded-2xl" disabled={isSubmitting}>
+            <Button type="submit" className="h-11 w-full rounded-2xl" disabled={isSubmitting || Boolean(configError)}>
               {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-              {isSubmitting ? "Signing in..." : "Sign in"}
+              {isSubmitting ? "Please wait..." : authMode === "signin" ? "Sign in" : "Create account"}
             </Button>
           </form>
 
           <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
-            <p className="mb-1 flex items-center gap-2 font-medium text-slate-700">
-              <Clock3 className="h-4 w-4" /> Demo credentials for this static deployment
-            </p>
-            <p>Email: {DEMO_USER_EMAIL}</p>
-            <p>Password: {DEMO_USER_PASSWORD}</p>
+            <p className="font-medium text-slate-700">Session policy</p>
+            <p className="mt-1">User session is persisted with Firebase and auto-expired after 24 hours.</p>
           </div>
         </CardContent>
       </Card>
@@ -2531,8 +2376,8 @@ export default function PythonQuestionsWebsite() {
     }
   };
 
-  const handleLogout = () => {
-    auth.logout();
+  const handleLogout = async () => {
+    await auth.logout();
     navigateTo("/login");
   };
 
@@ -2553,7 +2398,12 @@ export default function PythonQuestionsWebsite() {
       <AnimatePresence mode="wait">
         {activeRoute.type === "login" && (
           <motion.div key="login" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <LoginPage onLogin={handleLogin} isSubmitting={isLoggingIn} errorMessage={loginError} />
+            <LoginPage
+              onLogin={handleLogin}
+              isSubmitting={isLoggingIn}
+              errorMessage={loginError}
+              configError={auth.configError}
+            />
           </motion.div>
         )}
 
