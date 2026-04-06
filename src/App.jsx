@@ -18,6 +18,11 @@ import {
   FolderKanban,
   TerminalSquare,
   Route,
+  ShieldCheck,
+  Mail,
+  LockKeyhole,
+  LogOut,
+  Clock3,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -1313,6 +1318,184 @@ function LabelBadge({ label }) {
   return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${labelStyles[label] || "bg-slate-100 text-slate-700"}`}>{label}</span>;
 }
 const STORAGE_KEY = "python-practice-progress-v1";
+const AUTH_SESSION_KEY = "python-practice-auth-v1";
+const AUTH_TTL_MS = 24 * 60 * 60 * 1000;
+const DEMO_USER_EMAIL = "student@pythonpractice.dev";
+const DEMO_USER_PASSWORD = "python@123";
+
+function base64UrlEncode(value) {
+  const encoded = btoa(value);
+  return encoded.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function base64UrlDecode(value) {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+  return atob(padded);
+}
+
+function parseJwtPayload(token) {
+  try {
+    const [, payload] = token.split(".");
+    if (!payload) return null;
+    return JSON.parse(base64UrlDecode(payload));
+  } catch {
+    return null;
+  }
+}
+
+function buildMockJwt(email) {
+  const now = Math.floor(Date.now() / 1000);
+  const header = { alg: "HS256", typ: "JWT" };
+  const payload = {
+    sub: email,
+    email,
+    iat: now,
+    exp: now + Math.floor(AUTH_TTL_MS / 1000),
+  };
+  return `${base64UrlEncode(JSON.stringify(header))}.${base64UrlEncode(JSON.stringify(payload))}.demo-signature`;
+}
+
+function normalizeAuthSession(rawSession) {
+  if (!rawSession?.token) return null;
+  const now = Date.now();
+  const payload = parseJwtPayload(rawSession.token);
+  const tokenExpiry = typeof payload?.exp === "number" ? payload.exp * 1000 : null;
+  const fallbackExpiry = now + AUTH_TTL_MS;
+  const expiresAt = Math.min(tokenExpiry ?? fallbackExpiry, fallbackExpiry);
+  return {
+    token: rawSession.token,
+    user: rawSession.user || {},
+    expiresAt,
+    createdAt: now,
+  };
+}
+
+function saveAuthSession(rawSession) {
+  const session = normalizeAuthSession(rawSession);
+  if (!session) return null;
+  window.localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
+  return session;
+}
+
+function readAuthSession() {
+  try {
+    const raw = window.localStorage.getItem(AUTH_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.token || typeof parsed?.expiresAt !== "number") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function clearAuthSession() {
+  window.localStorage.removeItem(AUTH_SESSION_KEY);
+}
+
+function isAuthSessionValid(session) {
+  if (!session?.token || typeof session?.expiresAt !== "number") return false;
+  if (session.expiresAt <= Date.now()) return false;
+  return true;
+}
+
+async function requestJwtSession({ email, password }) {
+  const normalizedEmail = email.trim().toLowerCase();
+  const loginUrl = import.meta.env.VITE_AUTH_LOGIN_URL;
+
+  if (loginUrl) {
+    const response = await fetch(loginUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email: normalizedEmail, password }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data?.token) {
+      throw new Error(data?.message || "Invalid email or password.");
+    }
+    return {
+      token: data.token,
+      user: data.user || { email: normalizedEmail },
+    };
+  }
+
+  if (normalizedEmail !== DEMO_USER_EMAIL || password !== DEMO_USER_PASSWORD) {
+    throw new Error(`Invalid credentials. Use ${DEMO_USER_EMAIL} / ${DEMO_USER_PASSWORD}`);
+  }
+
+  return {
+    token: buildMockJwt(normalizedEmail),
+    user: {
+      email: normalizedEmail,
+      name: "Practice Learner",
+    },
+  };
+}
+
+function useAuthSession() {
+  const [status, setStatus] = useState("loading");
+  const [session, setSession] = useState(null);
+
+  useEffect(() => {
+    const stored = readAuthSession();
+    if (isAuthSessionValid(stored)) {
+      setSession(stored);
+      setStatus("authenticated");
+      return;
+    }
+    clearAuthSession();
+    setSession(null);
+    setStatus("anonymous");
+  }, []);
+
+  useEffect(() => {
+    if (!session?.expiresAt) return;
+    const msLeft = session.expiresAt - Date.now();
+    if (msLeft <= 0) {
+      clearAuthSession();
+      setSession(null);
+      setStatus("anonymous");
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      clearAuthSession();
+      setSession(null);
+      setStatus("anonymous");
+    }, msLeft);
+    return () => window.clearTimeout(timer);
+  }, [session?.expiresAt]);
+
+  const login = async (credentials) => {
+    const rawSession = await requestJwtSession(credentials);
+    const persisted = saveAuthSession(rawSession);
+    if (!isAuthSessionValid(persisted)) {
+      clearAuthSession();
+      throw new Error("Received an invalid session token.");
+    }
+    setSession(persisted);
+    setStatus("authenticated");
+    return persisted;
+  };
+
+  const logout = () => {
+    clearAuthSession();
+    setSession(null);
+    setStatus("anonymous");
+  };
+
+  return {
+    status,
+    isAuthenticated: status === "authenticated",
+    token: session?.token || null,
+    user: session?.user || null,
+    expiresAt: session?.expiresAt || null,
+    login,
+    logout,
+  };
+}
 
 const slugify = (value) => value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 
@@ -1351,6 +1534,7 @@ function useHashRoute() {
 
 function parseRoute(route, allQuestions) {
   if (route === "/") return { type: "home" };
+  if (route === "/login") return { type: "login" };
   const parts = route.split("/").filter(Boolean);
 
   if (parts[0] === "topics") {
@@ -1396,6 +1580,107 @@ function useLocalProgress(allQuestions) {
     progressValue,
     markComplete: (slug) => setCompleted((prev) => ({ ...prev, [slug]: true })),
   };
+}
+
+function SessionHeader({ user, expiresAt, onLogout }) {
+  return (
+    <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
+      <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-900 text-white">
+            <ShieldCheck className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-slate-900">Signed in</p>
+            <p className="text-xs text-slate-600">
+              {user?.email || "Unknown user"}
+              {expiresAt ? ` • Expires ${new Date(expiresAt).toLocaleString()}` : ""}
+            </p>
+          </div>
+        </div>
+        <Button variant="outline" className="rounded-2xl" onClick={onLogout}>
+          <LogOut className="h-4 w-4" /> Logout
+        </Button>
+      </div>
+    </header>
+  );
+}
+
+function LoginPage({ onLogin, isSubmitting, errorMessage }) {
+  const [email, setEmail] = useState(DEMO_USER_EMAIL);
+  const [password, setPassword] = useState(DEMO_USER_PASSWORD);
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    await onLogin({ email, password });
+  };
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-slate-100 to-white px-4 py-10 sm:px-6">
+      <Card className="w-full max-w-md rounded-3xl border-0 shadow-xl">
+        <CardHeader className="space-y-3 pb-2">
+          <div className="inline-flex w-fit items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+            <ShieldCheck className="h-4 w-4" /> JWT Authentication
+          </div>
+          <CardTitle className="text-3xl">Welcome back</CardTitle>
+          <p className="text-sm text-slate-600">
+            Login to access all coding questions. Session is remembered for up to 24 hours.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <label className="block space-y-2">
+              <span className="text-sm font-medium text-slate-700">Email</span>
+              <div className="relative">
+                <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  className="h-11 rounded-2xl pl-10"
+                  placeholder="you@example.com"
+                />
+              </div>
+            </label>
+
+            <label className="block space-y-2">
+              <span className="text-sm font-medium text-slate-700">Password</span>
+              <div className="relative">
+                <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Input
+                  type="password"
+                  required
+                  minLength={6}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  className="h-11 rounded-2xl pl-10"
+                  placeholder="Enter your password"
+                />
+              </div>
+            </label>
+
+            {errorMessage ? (
+              <p className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorMessage}</p>
+            ) : null}
+
+            <Button type="submit" className="h-11 w-full rounded-2xl" disabled={isSubmitting}>
+              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+              {isSubmitting ? "Signing in..." : "Sign in"}
+            </Button>
+          </form>
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+            <p className="mb-1 flex items-center gap-2 font-medium text-slate-700">
+              <Clock3 className="h-4 w-4" /> Demo credentials for this static deployment
+            </p>
+            <p>Email: {DEMO_USER_EMAIL}</p>
+            <p>Password: {DEMO_USER_PASSWORD}</p>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
 }
 
 function Breadcrumbs({ items }) {
@@ -2183,9 +2468,17 @@ function NotFoundPage() {
 export default function PythonQuestionsWebsite() {
   const [search, setSearch] = useState("");
   const [selectedDifficulty, setSelectedDifficulty] = useState("All");
+  const [loginError, setLoginError] = useState("");
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const auth = useAuthSession();
   const allQuestions = useMemo(() => flattenQuestions(), []);
   const route = useHashRoute();
   const parsedRoute = useMemo(() => parseRoute(route, allQuestions), [route, allQuestions]);
+  const activeRoute = useMemo(() => {
+    if (!auth.isAuthenticated) return { type: "login" };
+    if (parsedRoute.type === "login") return { type: "home" };
+    return parsedRoute;
+  }, [auth.isAuthenticated, parsedRoute]);
   const progress = useLocalProgress(allQuestions);
 
   const filteredTopics = useMemo(() => {
@@ -2215,59 +2508,97 @@ export default function PythonQuestionsWebsite() {
   };
 
   const relatedQuestions = useMemo(() => {
-    if (parsedRoute.type !== "question-detail") return [];
+    if (activeRoute.type !== "question-detail") return [];
     return allQuestions
       .filter(
         (item) =>
-          item.slug !== parsedRoute.question.slug &&
-          (item.topic === parsedRoute.question.topic || item.difficulty === parsedRoute.question.difficulty)
+          item.slug !== activeRoute.question.slug &&
+          (item.topic === activeRoute.question.topic || item.difficulty === activeRoute.question.difficulty)
       )
       .slice(0, 4);
-  }, [parsedRoute, allQuestions]);
+  }, [activeRoute, allQuestions]);
+
+  const handleLogin = async (credentials) => {
+    setIsLoggingIn(true);
+    setLoginError("");
+    try {
+      await auth.login(credentials);
+      navigateTo("/");
+    } catch (error) {
+      setLoginError(error?.message || "Unable to login with the provided credentials.");
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleLogout = () => {
+    auth.logout();
+    navigateTo("/login");
+  };
+
+  if (auth.status === "loading") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
+        <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm text-slate-700 shadow-sm">
+          <Loader2 className="h-4 w-4 animate-spin" /> Validating secure session...
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <AnimatePresence mode="wait">
-      {parsedRoute.type === "home" && (
-        <motion.div key="home" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-          <HomePage
-            search={search}
-            setSearch={setSearch}
-            selectedDifficulty={selectedDifficulty}
-            setSelectedDifficulty={setSelectedDifficulty}
-            filteredTopics={filteredTopics}
-            stats={stats}
-            progress={progress}
+    <div className="min-h-screen bg-slate-50">
+      {auth.isAuthenticated ? <SessionHeader user={auth.user} expiresAt={auth.expiresAt} onLogout={handleLogout} /> : null}
+
+      <AnimatePresence mode="wait">
+        {activeRoute.type === "login" && (
+          <motion.div key="login" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <LoginPage onLogin={handleLogin} isSubmitting={isLoggingIn} errorMessage={loginError} />
+          </motion.div>
+        )}
+
+        {activeRoute.type === "home" && (
+          <motion.div key="home" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <HomePage
+              search={search}
+              setSearch={setSearch}
+              selectedDifficulty={selectedDifficulty}
+              setSelectedDifficulty={setSelectedDifficulty}
+              filteredTopics={filteredTopics}
+              stats={stats}
+              progress={progress}
+            />
+          </motion.div>
+        )}
+
+        {activeRoute.type === "topics" && (
+          <motion.div key="topics" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <TopicsPage progressMap={progress.completed} />
+          </motion.div>
+        )}
+
+        {activeRoute.type === "topic-detail" && (
+          <motion.div key={`topic-${activeRoute.topic.topicSlug}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <TopicDetailPage topic={activeRoute.topic} progressMap={progress.completed} />
+          </motion.div>
+        )}
+
+        {activeRoute.type === "question-detail" && (
+          <QuestionDetail
+            key={activeRoute.question.slug}
+            question={activeRoute.question}
+            relatedQuestions={relatedQuestions}
+            onSolved={progress.markComplete}
+            progressMap={progress.completed}
           />
-        </motion.div>
-      )}
+        )}
 
-      {parsedRoute.type === "topics" && (
-        <motion.div key="topics" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-          <TopicsPage progressMap={progress.completed} />
-        </motion.div>
-      )}
-
-      {parsedRoute.type === "topic-detail" && (
-        <motion.div key={`topic-${parsedRoute.topic.topicSlug}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-          <TopicDetailPage topic={parsedRoute.topic} progressMap={progress.completed} />
-        </motion.div>
-      )}
-
-      {parsedRoute.type === "question-detail" && (
-        <QuestionDetail
-          key={parsedRoute.question.slug}
-          question={parsedRoute.question}
-          relatedQuestions={relatedQuestions}
-          onSolved={progress.markComplete}
-          progressMap={progress.completed}
-        />
-      )}
-
-      {parsedRoute.type === "not-found" && (
-        <motion.div key="not-found" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-          <NotFoundPage />
-        </motion.div>
-      )}
-    </AnimatePresence>
+        {activeRoute.type === "not-found" && (
+          <motion.div key="not-found" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <NotFoundPage />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
