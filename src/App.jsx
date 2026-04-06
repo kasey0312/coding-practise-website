@@ -1430,8 +1430,8 @@ function StatCard({ label, value }) {
 
 function TopicCard({ topic, color, questions, progressMap }) {
   return (
-    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
-      <Card className="h-full rounded-2xl border-0 shadow-md">
+    <motion.div className="self-start" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
+      <Card className="rounded-2xl border-0 shadow-md">
         <CardHeader className={`${color} rounded-t-2xl`}>
           <CardTitle className="flex items-center gap-2 text-xl">
             <BookOpen className="h-5 w-5" />
@@ -1565,7 +1565,7 @@ function HomePage({ search, setSearch, selectedDifficulty, setSelectedDifficulty
           </Badge>
         </div>
 
-        <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid items-start gap-6 md:grid-cols-2 xl:grid-cols-3">
           {filteredTopics.map((section) => (
             <TopicCard key={section.topic} topic={section.topic} color={section.color} questions={section.questions} progressMap={progress.completed} />
           ))}
