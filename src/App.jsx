@@ -1430,7 +1430,7 @@ function StatCard({ label, value }) {
 
 function TopicCard({ topic, color, questions, progressMap }) {
   return (
-    <motion.div className="self-start" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
+    <motion.div className="mb-6 w-full break-inside-avoid" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
       <Card className="rounded-2xl border-0 shadow-md">
         <CardHeader className={`${color} rounded-t-2xl`}>
           <CardTitle className="flex items-center gap-2 text-xl">
@@ -1500,14 +1500,14 @@ function QuestionListItem({ question, progressMap }) {
 function HomePage({ search, setSearch, selectedDifficulty, setSelectedDifficulty, filteredTopics, stats, progress }) {
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white text-slate-900">
-      <section className="mx-auto max-w-7xl px-6 py-12 md:py-16">
+      <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6 md:py-16">
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="mb-10 grid gap-6 lg:grid-cols-[1.4fr_0.6fr]">
           <div className="rounded-3xl bg-slate-900 p-8 text-white shadow-xl">
             <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-sm">
               <Code2 className="h-4 w-4" />
               Python Practice Website
             </div>
-            <h1 className="mb-4 text-4xl font-bold leading-tight md:text-5xl">
+            <h1 className="mb-4 text-3xl font-bold leading-tight sm:text-4xl md:text-5xl">
               Python basic coding questions with real-life examples
             </h1>
             <p className="max-w-3xl text-base text-slate-300 md:text-lg">
@@ -1555,7 +1555,7 @@ function HomePage({ search, setSearch, selectedDifficulty, setSelectedDifficulty
           </CardContent>
         </Card>
 
-        <div className="mb-6 flex items-center justify-between gap-3">
+        <div className="mb-6 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
           <div>
             <h2 className="text-2xl font-bold">Question Bank</h2>
             <p className="text-slate-600">Now organized as a route-based practice app with topic and question pages.</p>
@@ -1565,7 +1565,7 @@ function HomePage({ search, setSearch, selectedDifficulty, setSelectedDifficulty
           </Badge>
         </div>
 
-        <div className="grid items-start gap-6 md:grid-cols-2 xl:grid-cols-3">
+        <div className="columns-1 gap-6 md:columns-2 xl:columns-3">
           {filteredTopics.map((section) => (
             <TopicCard key={section.topic} topic={section.topic} color={section.color} questions={section.questions} progressMap={progress.completed} />
           ))}
@@ -1587,9 +1587,9 @@ function HomePage({ search, setSearch, selectedDifficulty, setSelectedDifficulty
 function TopicsPage({ progressMap }) {
   const sections = topicCards();
   return (
-    <div className="mx-auto max-w-7xl px-6 py-10">
+    <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
       <Breadcrumbs items={[{ label: "Home", path: "/" }, { label: "Topics" }]} />
-      <div className="mb-8 flex items-center justify-between gap-4">
+      <div className="mb-8 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <h1 className="text-3xl font-bold">All topics</h1>
           <p className="mt-2 text-slate-600">Choose a topic to see every question inside it.</p>
@@ -1622,7 +1622,7 @@ function TopicsPage({ progressMap }) {
 function TopicDetailPage({ topic, progressMap }) {
   const questions = topic.questions.map((q) => withMeta(topic, q));
   return (
-    <div className="mx-auto max-w-6xl px-6 py-10">
+    <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
       <Breadcrumbs items={[{ label: "Home", path: "/" }, { label: "Topics", path: "/topics" }, { label: topic.topic }]} />
       <div className="mb-8 rounded-3xl border-0 bg-white p-8 shadow-md">
         <div className={`mb-4 inline-flex rounded-full ${topic.color} px-3 py-1 text-sm font-medium`}>
@@ -2030,7 +2030,7 @@ json.dumps({
 
 function QuestionDetail({ question, relatedQuestions, onSolved, progressMap }) {
   return (
-    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.25 }} className="mx-auto max-w-7xl px-6 py-10">
+    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.25 }} className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
       <Breadcrumbs items={[{ label: "Home", path: "/" }, { label: "Topics", path: "/topics" }, { label: question.topic, path: `/topics/${question.topicSlug}` }, { label: question.title }]} />
 
       <div className="mb-6 flex flex-wrap gap-3">
